@@ -1,15 +1,14 @@
-
 {
   "spec": 1,
   "name": "ColorOS Plus",
   "previewText": "ColorOS Plus Font",
   "main": {
-    "ggsans-Normal": "https://raw.githubusercontent.com/Vadinyt/ValencedFonts/main/Plus.ttf",
-    "ggsans-Medium": "https://raw.githubusercontent.com/Vadinyt/ValencedFonts/main/Plus.ttf",
-    "ggsans-Semibold": "https://raw.githubusercontent.com/Vadinyt/ValencedFonts/main/Plus.ttf",
-    "ggsans-Bold": "https://raw.githubusercontent.com/Vadinyt/ValencedFonts/main/Plus.ttf",
-    "ggsans-ExtraBold": "https://raw.githubusercontent.com/Vadinyt/ValencedFonts/main/Plus.ttf",
-    "ABCGintoNord-ExtraBold": "https://raw.githubusercontent.com/Vadinyt/ValencedFonts/main/Plus.ttf",
-    "NotoSans-Normal": "https://raw.githubusercontent.com/Vadinyt/ValencedFonts/main/Plus.ttf"
+    "ggsans-Normal": "https://raw.githubusercontent.com/Vadinyt/ValencedFonts/main/Plus%281%29.ttf",
+    "ggsans-Medium": "https://raw.githubusercontent.com/Vadinyt/ValencedFonts/main/Plus%281%29.ttf",
+    "ggsans-Semibold": "https://raw.githubusercontent.com/Vadinyt/ValencedFonts/main/Plus%281%29.ttf",
+    "ggsans-Bold": "https://raw.githubusercontent.com/Vadinyt/ValencedFonts/main/Plus%281%29.ttf",
+    "ggsans-ExtraBold": "https://raw.githubusercontent.com/Vadinyt/ValencedFonts/main/Plus%281%29.ttf",
+    "ABCGintoNord-ExtraBold": "https://raw.githubusercontent.com/Vadinyt/ValencedFonts/main/Plus%281%29.ttf",
+    "NotoSans-Normal": "https://raw.githubusercontent.com/Vadinyt/ValencedFonts/main/Plus%281%29.ttf"
   }
 }
