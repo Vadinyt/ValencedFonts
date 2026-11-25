@@ -596,9 +596,8 @@ export function createServerDrawer(
 					return `${id}.${channel.name ?? ''}.${channel.icon ?? ''}.${(channel.recipients ?? []).map(userKey).join(',')}.${state.mentionCount}.${state.unread ? 1 : 0}`
 				}).join('\u0000')
 
-		const buildSnapshot = (previous: t.ServerDrawerSnapshot | undefined, serversChanged: boolean, dmsChanged: boolean): t.ServerDrawerSnapshot => {
-			const nodes: readonly t.DrawerNode[] = previous && !serversChanged ? previous.nodes :
-				SortedGuildStore.getGuildFolders().flatMap<t.DrawerNode>(
+		const buildNodes = (): readonly t.DrawerNode[] =>
+			SortedGuildStore.getGuildFolders().flatMap<t.DrawerNode>(
 					(folder: t.NativeGuildFolder) => {
 						const id =
 							folder.folderId == null ? undefined : String(folder.folderId)
@@ -624,8 +623,8 @@ export function createServerDrawer(
 					},
 				)
 
-			const directMessages: readonly t.DirectMessage[] = previous && !dmsChanged ? previous.directMessages :
-				PrivateChannelSortStore.getPrivateChannelIds().flatMap((id: string) => {
+		const buildDms = (): readonly t.DirectMessage[] =>
+			PrivateChannelSortStore.getPrivateChannelIds().flatMap((id: string) => {
 					const channel = privateChannel(id)
 					if (!channel) return []
 
@@ -667,15 +666,8 @@ export function createServerDrawer(
 					]
 				})
 
-			return {
-				nodes,
-				directMessages,
-				selectedGuildId: SelectedGuildStore.getGuildId(),
-				selectedPrivateChannelId: SelectedChannelStore.getChannelId(),
-			}
-		}
-
-		let cached: t.ServerDrawerSnapshot | undefined
+		let cachedNodes: readonly t.DrawerNode[] | undefined
+		let cachedDms: readonly t.DirectMessage[] | undefined
 		let cachedServerKey: string | undefined
 		let cachedDmKey: string | undefined
 
@@ -734,18 +726,20 @@ export function createServerDrawer(
 				if (channels.length) readActions.bulkAck(channels)
 			},
 
-			snapshot(): t.ServerDrawerSnapshot {
-				const serverKey = serverSnapshotKey()
-				const dmKey = dmSnapshotKey()
-				const serversChanged = !cached || cachedServerKey !== serverKey
-				const dmsChanged = !cached || cachedDmKey !== dmKey
-				if (cached && !serversChanged && !dmsChanged &&
-					cached.selectedGuildId === SelectedGuildStore.getGuildId() &&
-					cached.selectedPrivateChannelId === SelectedChannelStore.getChannelId()) return cached
-				const next = buildSnapshot(cached, serversChanged, dmsChanged)
-				cachedServerKey = serverKey
-				cachedDmKey = dmKey
-				return (cached = next)
+			serverSnapshot(): readonly t.DrawerNode[] {
+				const key = serverSnapshotKey()
+				if (cachedNodes && key === cachedServerKey) return cachedNodes
+				const next = buildNodes()
+				cachedServerKey = key
+				return (cachedNodes = next)
+			},
+
+			dmSnapshot(): readonly t.DirectMessage[] {
+				const key = dmSnapshotKey()
+				if (cachedDms && key === cachedDmKey) return cachedDms
+				const next = buildDms()
+				cachedDmKey = key
+				return (cachedDms = next)
 			},
 
 			// Native actions return void; false means the item or route is no longer available.
@@ -1642,26 +1636,31 @@ export function createServerDrawer(
 			}
 			const preferFriendNicknames = stored.preferFriendNicknames ?? true
 
-			const snapshot: t.ServerDrawerSnapshot = FluxUtils!.useStateFromStores(
-				[
-					ChannelStore,
-					GuildReadStateStore,
-					GuildStore,
-					PrivateChannelSortStore,
-					ReadStateStore,
-					SelectedChannelStore,
-					SelectedGuildStore,
-					SortedGuildStore,
-					RelationshipStore,
-					UserStore,
-				],
-				() => (signal.aborted ? EMPTY_SNAPSHOT : controller.snapshot()),
+			// Observe each collection independently so navigation never scans both lists.
+			const nodes = FluxUtils!.useStateFromStores(
+				[GuildReadStateStore, GuildStore, SortedGuildStore],
+				() => signal.aborted ? EMPTY_SNAPSHOT.nodes : controller.serverSnapshot(),
+				[],
+			)
+			const dmSnapshot = FluxUtils!.useStateFromStores(
+				[ChannelStore, PrivateChannelSortStore, ReadStateStore, RelationshipStore, UserStore],
+				() => signal.aborted ? EMPTY_SNAPSHOT.directMessages : controller.dmSnapshot(),
 				[preferFriendNicknames],
+			)
+			const selectedGuildId = FluxUtils!.useStateFromStores(
+				[SelectedGuildStore],
+				() => signal.aborted ? undefined : SelectedGuildStore.getGuildId(),
+				[],
+			)
+			const selectedPrivateChannelId = FluxUtils!.useStateFromStores(
+				[SelectedChannelStore],
+				() => signal.aborted ? undefined : SelectedChannelStore.getChannelId(),
+				[],
 			)
 
 			const directMessages = useMemo(
-				() => orderedDms(snapshot.directMessages, stored.dmOrder),
-				[snapshot.directMessages, stored.dmOrder],
+				() => orderedDms(dmSnapshot, stored.dmOrder),
+				[dmSnapshot, stored.dmOrder],
 			)
 
 			const directMessageBadge = useMemo(
@@ -1677,7 +1676,9 @@ export function createServerDrawer(
 			)
 
 			return {
-				...snapshot,
+				nodes,
+				selectedGuildId,
+				selectedPrivateChannelId,
 				layouts,
 				directMessages,
 				directMessageBadge,
