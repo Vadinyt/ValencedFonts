@@ -1,0 +1,70 @@
+name: Publish Server Drawer v1.0.11
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-server-drawer.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: publish-server-drawer
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Download validated build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45666213728 --repo "$GITHUB_REPOSITORY" --name server-drawer --dir /tmp/server-drawer
+      - name: Add drawer to existing Valenced repository
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, pathlib, zipfile
+          expected = '34733b4d309c0f2d4f42bae463f1da301d1ac0cfdab660ffa38f5a76a1e2942f'
+          plugin_id, version = 'dev.vadinyt.server-drawer', '1.0.11'
+          filename = f'{plugin_id}@{version}.zip'
+          source = pathlib.Path('/tmp/server-drawer') / filename
+          payload = source.read_bytes()
+          digest = hashlib.sha256(payload).hexdigest()
+          assert digest == expected, 'Archive does not match the validated build'
+          with zipfile.ZipFile(source) as z:
+              assert z.testzip() is None
+              manifest = json.loads(z.read('manifest.json'))
+              assert manifest['id'] == plugin_id and manifest['version'] == version
+              assert z.getinfo(manifest['dist']['script']).file_size > 0
+          path = pathlib.Path('pool') / filename
+          path.parent.mkdir(exist_ok=True)
+          if path.exists() and path.read_bytes() != payload:
+              raise RuntimeError('Refusing to overwrite a different published archive')
+          index_path = pathlib.Path('index.json')
+          index = json.loads(index_path.read_text())
+          entry = index['plugins'].setdefault(plugin_id, {
+              'name': manifest['name'], 'description': manifest['description'],
+              'author': 'kmmiio99o, Rosie, Benjii; performance fork by Vadinyt',
+              'channels': {}, 'versions': {}
+          })
+          release = {
+              'url': f'https://raw.githubusercontent.com/Vadinyt/ValencedFonts/main/pool/{filename}',
+              'sha256': digest, 'size': len(payload), 'dependencies': manifest['dependencies']
+          }
+          if version in entry['versions'] and entry['versions'][version] != release:
+              raise RuntimeError('Refusing to overwrite existing release metadata')
+          entry['versions'][version] = release
+          entry['channels'].setdefault('latest', version)
+          path.write_bytes(payload)
+          index_path.write_text(json.dumps(index, indent=2, ensure_ascii=False) + '\n')
+          print(f'Validated {filename}: {len(payload)} bytes, SHA256 {digest}')
+          PY
+      - name: Commit only the drawer archive and repository index
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- index.json pool/dev.vadinyt.server-drawer@1.0.11.zip
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Publish Server Drawer 120Hz v1.0.11 to Valenced repository"
+          git push origin HEAD:main
