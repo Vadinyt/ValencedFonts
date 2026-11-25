@@ -1,0 +1,28 @@
+{
+  "spec": 1,
+  "name": "ColorOS Plus v3",
+  "previewText": "ColorOS Plus — ABC abc 123",
+  "main": {
+    "ggsans-Normal": "https://cdn.jsdelivr.net/gh/Vadinyt/ValencedFonts@4263bc548e888f58ae04f5befae1881312f97588/Plus(1).ttf",
+    "ggsans-NormalItalic": "https://cdn.jsdelivr.net/gh/Vadinyt/ValencedFonts@4263bc548e888f58ae04f5befae1881312f97588/Plus(1).ttf",
+    "ggsans-Medium": "https://cdn.jsdelivr.net/gh/Vadinyt/ValencedFonts@4263bc548e888f58ae04f5befae1881312f97588/Plus(1).ttf",
+    "ggsans-MediumItalic": "https://cdn.jsdelivr.net/gh/Vadinyt/ValencedFonts@4263bc548e888f58ae04f5befae1881312f97588/Plus(1).ttf",
+    "ggsans-Semibold": "https://cdn.jsdelivr.net/gh/Vadinyt/ValencedFonts@4263bc548e888f58ae04f5befae1881312f97588/Plus(1).ttf",
+    "ggsans-SemiboldItalic": "https://cdn.jsdelivr.net/gh/Vadinyt/ValencedFonts@4263bc548e888f58ae04f5befae1881312f97588/Plus(1).ttf",
+    "ggsans-Bold": "https://cdn.jsdelivr.net/gh/Vadinyt/ValencedFonts@4263bc548e888f58ae04f5befae1881312f97588/Plus(1).ttf",
+    "ggsans-BoldItalic": "https://cdn.jsdelivr.net/gh/Vadinyt/ValencedFonts@4263bc548e888f58ae04f5befae1881312f97588/Plus(1).ttf",
+    "ggsans-ExtraBold": "https://cdn.jsdelivr.net/gh/Vadinyt/ValencedFonts@4263bc548e888f58ae04f5befae1881312f97588/Plus(1).ttf",
+    "ggsans-ExtraBoldItalic": "https://cdn.jsdelivr.net/gh/Vadinyt/ValencedFonts@4263bc548e888f58ae04f5befae1881312f97588/Plus(1).ttf",
+    "NotoSans-Normal": "https://cdn.jsdelivr.net/gh/Vadinyt/ValencedFonts@4263bc548e888f58ae04f5befae1881312f97588/Plus(1).ttf",
+    "NotoSans-NormalItalic": "https://cdn.jsdelivr.net/gh/Vadinyt/ValencedFonts@4263bc548e888f58ae04f5befae1881312f97588/Plus(1).ttf",
+    "NotoSans-Medium": "https://cdn.jsdelivr.net/gh/Vadinyt/ValencedFonts@4263bc548e888f58ae04f5befae1881312f97588/Plus(1).ttf",
+    "NotoSans-MediumItalic": "https://cdn.jsdelivr.net/gh/Vadinyt/ValencedFonts@4263bc548e888f58ae04f5befae1881312f97588/Plus(1).ttf",
+    "NotoSans-Semibold": "https://cdn.jsdelivr.net/gh/Vadinyt/ValencedFonts@4263bc548e888f58ae04f5befae1881312f97588/Plus(1).ttf",
+    "NotoSans-SemiboldItalic": "https://cdn.jsdelivr.net/gh/Vadinyt/ValencedFonts@4263bc548e888f58ae04f5befae1881312f97588/Plus(1).ttf",
+    "NotoSans-Bold": "https://cdn.jsdelivr.net/gh/Vadinyt/ValencedFonts@4263bc548e888f58ae04f5befae1881312f97588/Plus(1).ttf",
+    "NotoSans-BoldItalic": "https://cdn.jsdelivr.net/gh/Vadinyt/ValencedFonts@4263bc548e888f58ae04f5befae1881312f97588/Plus(1).ttf",
+    "NotoSans-ExtraBold": "https://cdn.jsdelivr.net/gh/Vadinyt/ValencedFonts@4263bc548e888f58ae04f5befae1881312f97588/Plus(1).ttf",
+    "NotoSans-ExtraBoldItalic": "https://cdn.jsdelivr.net/gh/Vadinyt/ValencedFonts@4263bc548e888f58ae04f5befae1881312f97588/Plus(1).ttf",
+    "ABCGintoNord-ExtraBold": "https://cdn.jsdelivr.net/gh/Vadinyt/ValencedFonts@4263bc548e888f58ae04f5befae1881312f97588/Plus(1).ttf"
+  }
+}
