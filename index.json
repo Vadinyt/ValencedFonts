@@ -8,13 +8,29 @@
       "description": "Local Plus TrueType font pack for Valenced.",
       "author": "Vadinyt",
       "channels": {
-        "latest": "1.0.0"
+        "latest": "1.0.1"
       },
       "versions": {
         "1.0.0": {
           "url": "https://raw.githubusercontent.com/Vadinyt/ValencedFonts/main/pool/dev.vadinyt.plus-font@1.0.0.zip",
           "sha256": "c9fc0ff3bfea757311966a4c419e0461175890b1d197b1df103ab08375cd848f",
           "size": 33977,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": ">=352.2"
+            },
+            "valenced.api.themes": {
+              "version": "*"
+            }
+          }
+        },
+        "1.0.1": {
+          "url": "https://raw.githubusercontent.com/Vadinyt/ValencedFonts/main/pool/dev.vadinyt.plus-font@1.0.1.zip",
+          "sha256": "1124734769d0db4d2480e4861d88e51406bed73970351e4deb29048cd68c4abf",
+          "size": 33990,
           "dependencies": {
             "valenced.api": {
               "version": ">=1 <2"

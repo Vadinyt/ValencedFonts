@@ -4,7 +4,7 @@
   "name": "Plus Font",
   "description": "Local Plus TrueType font pack for Valenced.",
   "author": "Vadinyt",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "dependencies": {
     "valenced.api": {
       "version": ">=1 <2"

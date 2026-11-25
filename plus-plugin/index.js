@@ -1,4 +1,4 @@
-({
+({default: ({
   preInit({ themes }) {
     const families = {};
     const weights = {Normal:400, Medium:500, Semibold:600, Bold:700, ExtraBold:800};
@@ -17,4 +17,4 @@
       families
     });
   }
-})
+})})
