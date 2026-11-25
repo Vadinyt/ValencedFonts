@@ -47,10 +47,10 @@
     },
     "dev.vadinyt.server-drawer": {
       "name": "Server Drawer 120Hz",
-      "description": "Performance-focused Server Drawer fork with incremental item caching, native drag and smoother gestures.",
+      "description": "Server Drawer with lighter FlashList measurement, recycled menu cache and scroll-aware list updates.",
       "author": "kmmiio99o, Rosie, Benjii; performance fork by Vadinyt",
       "channels": {
-        "latest": "1.0.12"
+        "latest": "1.0.13"
       },
       "versions": {
         "1.0.11": {
@@ -70,6 +70,19 @@
           "url": "https://raw.githubusercontent.com/Vadinyt/ValencedFonts/main/pool/dev.vadinyt.server-drawer@1.0.12.zip",
           "sha256": "20017a3015b6bd982b37a3b83b6006b0fafbe333a831fbfcc31a024b444e26dd",
           "size": 21514,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        },
+        "1.0.13": {
+          "url": "https://raw.githubusercontent.com/Vadinyt/ValencedFonts/main/pool/dev.vadinyt.server-drawer@1.0.13.zip",
+          "sha256": "766d92b0192fe9097ef7d4f7c241b9cff195ecee91c6b2f424e6caedb3e8ee38",
+          "size": 22099,
           "dependencies": {
             "valenced.api": {
               "version": ">=1 <2"
