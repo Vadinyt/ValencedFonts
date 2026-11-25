@@ -44,6 +44,29 @@
           }
         }
       }
+    },
+    "dev.vadinyt.server-drawer": {
+      "name": "Server Drawer 120Hz",
+      "description": "Performance-focused fork of Server Drawer v1.0.10 with native Android dock springs and reduced scrolling overhead.",
+      "author": "kmmiio99o, Rosie, Benjii; performance fork by Vadinyt",
+      "channels": {
+        "latest": "1.0.11"
+      },
+      "versions": {
+        "1.0.11": {
+          "url": "https://raw.githubusercontent.com/Vadinyt/ValencedFonts/main/pool/dev.vadinyt.server-drawer@1.0.11.zip",
+          "sha256": "34733b4d309c0f2d4f42bae463f1da301d1ac0cfdab660ffa38f5a76a1e2942f",
+          "size": 20808,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        }
+      }
     }
   }
 }
