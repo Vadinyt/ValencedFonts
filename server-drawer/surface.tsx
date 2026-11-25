@@ -811,6 +811,27 @@ export function createServerDrawer(
 			return () => listeners.delete(listener)
 		}
 
+		// Reuse native menu data across recycled cells, but retain separate anchors.
+		const rawCache = new Map<string | number, { guildVersion: number; settingsVersion: number; folderVersion: number; builder: GetItems; items: t.MenuItem[] }>()
+		const readMenu = (id: string | number, builder: GetItems) => {
+			const guildVersion = GuildStore._version
+			const settingsVersion = UserGuildSettingsStore._version
+			const folderVersion = folder ? SortedGuildStore._version : 0
+			if (![guildVersion, settingsVersion, folderVersion].every(Number.isFinite)) return builder(id)
+			const previous = rawCache.get(id)
+			if (previous && previous.builder === builder && previous.guildVersion === guildVersion &&
+				previous.settingsVersion === settingsVersion && previous.folderVersion === folderVersion) return previous.items
+			const items = builder(id)
+			rawCache.delete(id)
+			rawCache.set(id, { guildVersion, settingsVersion, folderVersion, builder, items })
+			if (rawCache.size > 256) {
+				const oldest = rawCache.keys().next().value
+				if (oldest !== undefined) rawCache.delete(oldest)
+			}
+			return items
+		}
+		signal.addEventListener('abort', () => rawCache.clear(), { once: true })
+
 		const wrap = (item: t.MenuItem): t.MenuItem => ({
 			...item,
 			async action() {
@@ -833,9 +854,9 @@ export function createServerDrawer(
 			// Build once per store notification and preserve unchanged menu wrappers.
 			const menuCache = useRef<{ id: string | number; raw: t.MenuItem[]; wrapped: t.MenuItem[] } | undefined>(undefined)
 			const items = FluxUtils!.useStateFromStores(
-				[GuildStore, UserGuildSettingsStore],
+				folder ? [GuildStore, UserGuildSettingsStore, SortedGuildStore] : [GuildStore, UserGuildSettingsStore],
 				() => {
-					const raw = getItems(id)
+					const raw = readMenu(id, getItems)
 					const previous = menuCache.current
 					if (previous && previous.id === id && previous.raw.length === raw.length &&
 						previous.raw.every((item, index) => item.label === raw[index]?.label)) {
@@ -1193,6 +1214,27 @@ export function createServerDrawer(
 			)
 		})
 
+		// Match real cell geometry and text without mounting images, menus or gestures.
+		function MeasurementCell({ item, layout, selected }: { item: t.DrawerItem; layout: t.DrawerLayout; selected: boolean }) {
+			const styles = useStyles()
+			const list = layout === 'list'
+			const folder = item.kind === 'folder'
+			return (
+				<View pointerEvents="none" accessible={false} style={list ? styles.listItem : styles.gridItem}>
+					<View style={list ? { width: ICON_SIZE, height: ICON_SIZE } : styles.selectionRing} />
+					<Design.Text
+						ellipsizeMode={list ? undefined : 'tail'}
+						numberOfLines={1}
+						variant={`${list ? 'text-md' : 'text-xs'}/${selected && !folder ? 'bold' : 'medium'}`}
+						style={list ? { flex: 1 } : styles.gridLabel}
+					>
+						{item.name ?? 'Folder'}
+					</Design.Text>
+					{list && folder ? <View style={{ width: 22, height: 22 }} /> : null}
+				</View>
+			)
+		}
+
 		function Item({
 			item,
 			layout = 'grid',
@@ -1223,14 +1265,11 @@ export function createServerDrawer(
 					moved.current = false
 				},
 				onTouchMove: ({ nativeEvent: event }: Native.GestureResponderEvent) => {
-					if (
-						touch.current &&
-						Math.hypot(
-							event.pageX - touch.current.x,
-							event.pageY - touch.current.y,
-						) > touchSlop
-					)
-						moved.current = true
+					const start = touch.current
+					if (!start || moved.current) return
+					const dx = event.pageX - start.x
+					const dy = event.pageY - start.y
+					if (dx * dx + dy * dy > touchSlop * touchSlop) moved.current = true
 				},
 				onTouchCancel: () => {
 					moved.current = false
@@ -1564,7 +1603,8 @@ export function createServerDrawer(
 			)
 		}
 
-		function useDrawerData() {
+		type ScrollGate = { active: boolean; dirty: boolean }
+		function useDrawerData(scrollGate: import('react').RefObject<ScrollGate>, scrollEpoch: number) {
 			const stored =
 				jsonStorage.use(update => !('drawerSession' in update)) ??
 				DefaultSettings
@@ -1582,16 +1622,32 @@ export function createServerDrawer(
 			}
 			const preferFriendNicknames = stored.preferFriendNicknames ?? true
 
-			// Observe each collection independently so navigation never scans both lists.
+			// Retain stable collection identities during motion; catch up on idle.
+			const serverRef = useRef<readonly t.DrawerNode[] | undefined>(undefined)
+			const dmRef = useRef<readonly t.DirectMessage[] | undefined>(undefined)
 			const nodes = FluxUtils!.useStateFromStores(
 				[GuildReadStateStore, GuildStore, SortedGuildStore],
-				() => signal.aborted ? EMPTY_SNAPSHOT.nodes : controller.serverSnapshot(),
-				[],
+				() => {
+					if (signal.aborted) return EMPTY_SNAPSHOT.nodes
+					if (scrollGate.current.active && serverRef.current) {
+						scrollGate.current.dirty = true
+						return serverRef.current
+					}
+					return (serverRef.current = controller.serverSnapshot())
+				},
+				[scrollEpoch],
 			)
 			const dmSnapshot = FluxUtils!.useStateFromStores(
 				[ChannelStore, PrivateChannelSortStore, ReadStateStore, RelationshipStore, UserStore],
-				() => signal.aborted ? EMPTY_SNAPSHOT.directMessages : controller.dmSnapshot(),
-				[preferFriendNicknames],
+				() => {
+					if (signal.aborted) return EMPTY_SNAPSHOT.directMessages
+					if (scrollGate.current.active && dmRef.current) {
+						scrollGate.current.dirty = true
+						return dmRef.current
+					}
+					return (dmRef.current = controller.dmSnapshot())
+				},
+				[preferFriendNicknames, scrollEpoch],
 			)
 			const selectedGuildId = FluxUtils!.useStateFromStores(
 				[SelectedGuildStore],
@@ -2196,7 +2252,36 @@ export function createServerDrawer(
 				listAtTopRef.current = next
 				setListAtTop(next)
 			}
-			const data = useDrawerData()
+			const scrollGate = useRef<ScrollGate>({ active: false, dirty: false })
+			const lastScroll = useRef(0)
+			const idleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+			const [scrollEpoch, refreshAfterScroll] = useReducer(value => value + 1, 0)
+			const finishScroll = () => {
+				clearTimeout(idleTimer.current)
+				idleTimer.current = undefined
+				scrollGate.current.active = false
+				if (scrollGate.current.dirty) {
+					scrollGate.current.dirty = false
+					if (!signal.aborted) refreshAfterScroll()
+				}
+			}
+			const noteScroll = () => {
+				scrollGate.current.active = true
+				lastScroll.current = Date.now()
+				if (idleTimer.current !== undefined) return
+				const check = () => {
+					const remaining = 150 - (Date.now() - lastScroll.current)
+					if (remaining > 0) idleTimer.current = setTimeout(check, remaining)
+					else finishScroll()
+				}
+				idleTimer.current = setTimeout(check, 150)
+			}
+			useEffect(() => () => {
+				clearTimeout(idleTimer.current)
+				scrollGate.current.active = false
+			}, [])
+			useEffect(() => { if (!expanded) finishScroll() }, [expanded])
+			const data = useDrawerData(scrollGate, scrollEpoch)
 			const [foreground, setForeground] = useState(
 				Native.AppState.currentState === 'active',
 			)
@@ -2606,7 +2691,8 @@ export function createServerDrawer(
 											onScroll={({
 												nativeEvent: { contentOffset },
 											}: Native.NativeSyntheticEvent<Native.NativeScrollEvent>) => {
-												if (hidden || page !== view) return
+												if (hidden || page !== view || !expanded) return
+												noteScroll()
 												if (!query && filter === 'all')
 													session.current.offsets[scrollKey] = Math.max(
 														0,
@@ -2618,10 +2704,8 @@ export function createServerDrawer(
 											renderItem={({
 												item,
 												index,
-											}: Pick<
-												Native.ListRenderItemInfo<t.DrawerItem>,
-												'item' | 'index'
-											>) => (
+												target,
+											}: Pick<Native.ListRenderItemInfo<t.DrawerItem>, 'item' | 'index'> & { target?: string }) => (
 												<View
 													style={{
 														marginLeft: (index % columns) * columnOffset,
@@ -2635,16 +2719,13 @@ export function createServerDrawer(
 																: 0,
 													}}
 												>
-													{renderItem(
-														item,
-														false,
-														undefined,
-														page,
-														!hidden,
-													)}
+													{target === 'Measurement' ? (
+														<MeasurementCell item={item} layout={data.layouts[page]} selected={item.id === (item.kind ? data.selectedGuildId : data.selectedPrivateChannelId)} />
+														) : renderItem(item, false, undefined, page, !hidden)}
 												</View>
 											)}
 											scrollEventThrottle={16}
+											drawDistance={400}
 											scrollEnabled={!active}
 											showsVerticalScrollIndicator={false}
 											style={{ flex: 1 }}

@@ -17,3 +17,6 @@ Static source review only; TypeScript compilation, Android runtime, and on-devic
 
 ## v1.0.12 — 2026-11-25
 One-pass reconciliation preserves unchanged guild/folder/DM objects, icon URLs and ordered arrays. Memoized cells resolve current actions and geometry at interaction time. Menus build once per store evaluation and resolve current actions. Closed folder lists are released on animation completion. Native drag coordinates and frame-coalesced hit testing reduce JS work; pan updates are batched and flushed before settling. All features remain available. Physical device frame timing is not verified.
+
+## v1.0.13 — fast scroll
+Use lightweight FlashList measurement cells matching the real row text and geometry; skip images, native menus and gesture recognizers during measurement. Render ahead by 400 dp (higher memory use possible). Reuse native menu data across recycled cells with store-version invalidation and independent anchors. Coalesce collection store changes during scrolling and refresh after 150 ms of idle or drawer close; badges, names and order may briefly lag while flinging. Keep selection updates immediate. All features retained; actual frame timing remains unmeasured.

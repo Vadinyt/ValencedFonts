@@ -2,10 +2,10 @@
 	"format": 1,
 	"id": "dev.vadinyt.server-drawer",
 	"name": "Server Drawer 120Hz",
-	"description": "Performance-focused Server Drawer fork with incremental item caching, native drag and smoother gestures.",
+	"description": "Server Drawer with lighter FlashList measurement, recycled menu cache and scroll-aware list updates.",
 	"author": "kmmiio99o <879393496627306587>",
 	"icon": "ServersIcon",
-	"version": "1.0.12",
+	"version": "1.0.13",
 	"dependencies": {
 		"valenced.api": {
 			"version": ">=1 <2"
