@@ -351,7 +351,6 @@ export interface DrawerCellProps {
 	item: DrawerItem
 	inFolder: boolean
 	compactSize?: number
-	items: readonly DrawerItem[]
 	animate: boolean
 	layout: DrawerLayout
 	width: number

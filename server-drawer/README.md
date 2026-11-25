@@ -14,3 +14,6 @@ Use the pinned upstream checkout, replace `plugins/server-drawer/` with this dir
 
 ## Verification
 Static source review only; TypeScript compilation, Android runtime, and on-device 120 Hz frame pacing have not been verified. Frame budget is 8.33 ms; test repeated open/close, vertical and horizontal swipes, large DMs/server lists, folder drag/drop, and 120 Hz frame timing. GIF playback and Discord Flux snapshot scanning remain possible costs. No guaranteed FPS claim.
+
+## v1.0.12 — 2026-11-25
+One-pass reconciliation preserves unchanged guild/folder/DM objects, icon URLs and ordered arrays. Memoized cells resolve current actions and geometry at interaction time. Menus build once per store evaluation and resolve current actions. Closed folder lists are released on animation completion. Native drag coordinates and frame-coalesced hit testing reduce JS work; pan updates are batched and flushed before settling. All features remain available. Physical device frame timing is not verified.

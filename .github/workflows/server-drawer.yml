@@ -9,8 +9,12 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: read
+
+concurrency:
+  group: server-drawer-build
+  cancel-in-progress: false
 
 jobs:
   drawer:
@@ -19,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: fork
-          persist-credentials: false
+          persist-credentials: true
       - uses: actions/checkout@v4
         with:
           repository: Valenced/valenced-community-plugins
@@ -67,3 +71,41 @@ jobs:
           name: server-drawer
           path: upstream/build/dist/dev.vadinyt.server-drawer@*.zip
           if-no-files-found: error
+      - name: Publish validated drawer to Valenced index
+        if: github.ref == 'refs/heads/main'
+        run: |
+          cd fork
+          git fetch origin main
+          git rebase origin/main
+          python3 - <<'PY'
+          import hashlib, json, pathlib, zipfile
+          plugin_id = 'dev.vadinyt.server-drawer'
+          manifest = json.loads(pathlib.Path('server-drawer/manifest.json').read_text())
+          version = manifest['version']
+          name = f'{plugin_id}@{version}.zip'
+          source = pathlib.Path('../upstream/build/dist') / name
+          payload = source.read_bytes()
+          with zipfile.ZipFile(source) as z:
+              built = json.loads(z.read('manifest.json'))
+              assert z.testzip() is None and built['id'] == plugin_id and built['version'] == version
+              assert z.getinfo(built['dist']['script']).file_size > 0
+          target = pathlib.Path('pool') / name
+          assert not target.exists() or target.read_bytes() == payload, 'Refusing to overwrite version'
+          index_path = pathlib.Path('index.json')
+          index = json.loads(index_path.read_text())
+          entry = index['plugins'][plugin_id]
+          release = {'url': f'https://raw.githubusercontent.com/Vadinyt/ValencedFonts/main/pool/{name}', 'sha256': hashlib.sha256(payload).hexdigest(), 'size': len(payload), 'dependencies': built['dependencies']}
+          assert version not in entry['versions'] or entry['versions'][version] == release
+          entry['name'] = built['name']
+          entry['description'] = built['description']
+          entry['versions'][version] = release
+          entry['channels']['latest'] = version
+          target.write_bytes(payload)
+          index_path.write_text(json.dumps(index, indent=2, ensure_ascii=False) + '\n')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- index.json pool/dev.vadinyt.server-drawer@*.zip
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Publish validated Server Drawer plugin"
+          git push origin HEAD:main

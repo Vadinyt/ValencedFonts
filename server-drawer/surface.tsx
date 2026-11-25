@@ -43,6 +43,7 @@ import {
 	filteredItems,
 	moveToSlot,
 	orderedDms,
+	reuseArray,
 } from './data'
 import type * as t from './types'
 
@@ -514,162 +515,108 @@ export function createServerDrawer(
 			unread: store.hasUnread(id),
 		})
 
-		const guildNode = (id: string, folderId?: string): t.DrawerGuild[] => {
-			const guild = GuildStore.getGuild(id)
-			if (!guild?.name?.trim()) return []
-			const state = badge(GuildReadStateStore, id)
-
-			return [
-				{
-					id,
-					kind: 'guild',
-					name: guild.name,
-					folderId,
-					avatarUri: guild.icon
-						? iconUtils.getGuildIconURL({
-								id,
-								icon: guild.icon,
-								size: 128,
-								canAnimate: false,
-							})
-						: undefined,
-					animatedAvatarUri: guild.icon?.startsWith('a_')
-						? iconUtils.getGuildIconURL({
-								id,
-								icon: guild.icon,
-								size: ICON_SIZE,
-								canAnimate: true,
-							})
-						: undefined,
-					...state,
-					unread: state.unread || state.mentionCount > 0,
-				},
-			]
-		}
-
-		const privateChannel = (id: string) => {
-			const channel = ChannelStore.getChannel(id)
-
-			return !channel || (channel.type !== 1 && channel.type !== 3)
-				? undefined
-				: channel
-		}
-
-		// The drawer subscribes to nine high-traffic stores, so the snapshot is re-evaluated on
-		// every dispatch any of them make. Fingerprint the state the dock actually displays and
-		// reuse the cached tree while it is unchanged, so useStateFromStores keeps seeing one
-		// reference and unrelated traffic stops re-rendering every dock item.
 		const preferNicknames = () =>
 			(jsonStorage.cache ?? DefaultSettings).preferFriendNicknames ?? true
 
-		const displayName = (id: string, user: t.NativeUser) =>
-			(preferNicknames() && RelationshipStore.getNickname(id)) ||
-			user.globalName ||
-			user.username
+		const guildCache = new Map<string, { icon?: string; item: t.DrawerGuild }>()
+		const folderCache = new Map<string, t.DrawerFolder>()
+		const dmCache = new Map<string, { artworkKey: string; item: t.DirectMessage }>()
+		let cachedNodes: readonly t.DrawerNode[] = EMPTY_SNAPSHOT.nodes
+		let cachedDms: readonly t.DirectMessage[] = EMPTY_SNAPSHOT.directMessages
 
-		const userKey = (id: string) => {
-			const user = UserStore.getUser(id)
-
-			return user ? `${id}.${user.avatar ?? ''}.${displayName(id, user)}` : id
+		const buildNodes = (): readonly t.DrawerNode[] => {
+			const nodes: t.DrawerNode[] = []
+			const seenGuilds = new Set<string>()
+			const seenFolders = new Set<string>()
+			for (const folder of SortedGuildStore.getGuildFolders()) {
+				const folderId = folder.folderId == null ? undefined : String(folder.folderId)
+				const children: t.DrawerGuild[] = []
+				let mentionCount = 0
+				let unread = false
+				for (const id of folder.guildIds) {
+					const guild = GuildStore.getGuild(id)
+					if (!guild?.name?.trim()) continue
+					seenGuilds.add(id)
+					const count = GuildReadStateStore.getMentionCount(id)
+					const hasUnread = GuildReadStateStore.hasUnread(id) || count > 0
+					const old = guildCache.get(id)
+					const sameIcon = old !== undefined && old.icon === guild.icon
+					let item = old?.item
+					if (!item || !sameIcon || item.name !== guild.name ||
+						item.folderId !== folderId || item.mentionCount !== count || item.unread !== hasUnread) {
+						item = {
+							id, kind: 'guild', name: guild.name, folderId,
+							mentionCount: count, unread: hasUnread,
+							avatarUri: sameIcon ? old.item.avatarUri : guild.icon ? iconUtils.getGuildIconURL({ id, icon: guild.icon, size: 128, canAnimate: false }) : undefined,
+							animatedAvatarUri: sameIcon ? old.item.animatedAvatarUri : guild.icon?.startsWith('a_') ? iconUtils.getGuildIconURL({ id, icon: guild.icon, size: ICON_SIZE, canAnimate: true }) : undefined,
+						}
+						guildCache.set(id, { icon: guild.icon, item })
+					}
+					children.push(item)
+					mentionCount += count
+					unread ||= hasUnread
+				}
+				if (folderId === undefined) {
+					for (const child of children) nodes.push(child)
+					continue
+				}
+				seenFolders.add(folderId)
+				const old = folderCache.get(folderId)
+				const name = folder.folderName?.trim() || undefined
+				const color = folder.folderColor
+				const stableChildren = reuseArray(old?.children, children)
+				const item: t.DrawerFolder = old && old.children === stableChildren &&
+					old.name === name && old.color === color &&
+					old.mentionCount === mentionCount && old.unread === unread ? old : {
+					id: folderId, kind: 'folder', children: stableChildren, name, color, mentionCount, unread,
+				}
+				folderCache.set(folderId, item)
+				nodes.push(item)
+			}
+			for (const id of guildCache.keys()) if (!seenGuilds.has(id)) guildCache.delete(id)
+			for (const id of folderCache.keys()) if (!seenFolders.has(id)) folderCache.delete(id)
+			return (cachedNodes = reuseArray(cachedNodes, nodes))
 		}
 
-		const guildKey = (id: string) => {
-			const guild = GuildStore.getGuild(id)
-			if (!guild?.name?.trim()) return ''
-			const state = badge(GuildReadStateStore, id)
-
-			return `${id}.${guild.name}.${guild.icon ?? ''}.${state.mentionCount}.${state.unread ? 1 : 0}`
+		const buildDms = (): readonly t.DirectMessage[] => {
+			const items: t.DirectMessage[] = []
+			const seen = new Set<string>()
+			const nicknames = preferNicknames()
+			for (const id of PrivateChannelSortStore.getPrivateChannelIds()) {
+				const channel = ChannelStore.getChannel(id)
+				if (!channel || (channel.type !== 1 && channel.type !== 3)) continue
+				seen.add(id)
+				let first: t.NativeUser | undefined
+				let firstId: string | undefined
+				const names: string[] = []
+				for (const recipient of channel.recipients ?? []) {
+					const user = UserStore.getUser(recipient)
+					if (!user) continue
+					if (!first) { first = user; firstId = recipient }
+					if (!channel.name) names.push((nicknames && RelationshipStore.getNickname(recipient)) || user.globalName || user.username)
+				}
+				const name = channel.name || names.join(', ') || 'Direct Message'
+				const artworkKey = JSON.stringify([channel.type, channel.icon, firstId, first?.avatar, first?.username])
+				const count = ReadStateStore.getMentionCount(id)
+				const unread = ReadStateStore.hasUnread(id)
+				const old = dmCache.get(id)
+				const sameArtwork = old !== undefined && old.artworkKey === artworkKey
+				let item = old?.item
+				if (!item || !sameArtwork || item.name !== name || item.mentionCount !== count || item.unread !== unread) {
+					item = {
+						id, name, mentionCount: count, unread,
+						avatarUri: sameArtwork ? old.item.avatarUri : channel.type === 1 ? first?.getAvatarURL?.(undefined, 128, false) :
+							channel.icon ? iconUtils.getChannelIconURL({ id, icon: channel.icon, size: 128 }) : undefined,
+						animatedAvatarUri: sameArtwork ? old.item.animatedAvatarUri : channel.type === 1 && first?.avatar?.startsWith('a_') ?
+							first.getAvatarURL(undefined, ICON_SIZE, true) : undefined,
+					}
+					dmCache.set(id, { artworkKey, item })
+				}
+				items.push(item)
+			}
+			for (const id of dmCache.keys()) if (!seen.has(id)) dmCache.delete(id)
+			return (cachedDms = reuseArray(cachedDms, items))
 		}
-
-		// Separate keys preserve list identity on navigation and unrelated badge updates.
-		const serverSnapshotKey = () =>
-			SortedGuildStore.getGuildFolders().map(
-					(folder: t.NativeGuildFolder) =>
-						`${folder.folderId ?? ''}.${folder.folderName ?? ''}.${folder.folderColor ?? ''}.${folder.guildIds.map(guildKey).join(',')}`,
-				).join('\u0000')
-		const dmSnapshotKey = () =>
-			PrivateChannelSortStore.getPrivateChannelIds().map((id: string) => {
-					const channel = privateChannel(id)
-					if (!channel) return ''
-					const state = badge(ReadStateStore, id)
-
-					return `${id}.${channel.name ?? ''}.${channel.icon ?? ''}.${(channel.recipients ?? []).map(userKey).join(',')}.${state.mentionCount}.${state.unread ? 1 : 0}`
-				}).join('\u0000')
-
-		const buildNodes = (): readonly t.DrawerNode[] =>
-			SortedGuildStore.getGuildFolders().flatMap<t.DrawerNode>(
-					(folder: t.NativeGuildFolder) => {
-						const id =
-							folder.folderId == null ? undefined : String(folder.folderId)
-						const children = folder.guildIds.flatMap(guild =>
-							guildNode(guild, id),
-						)
-						if (id === undefined) return children
-
-						return [
-							{
-								id,
-								kind: 'folder',
-								children,
-								name: folder.folderName?.trim() || undefined,
-								color: folder.folderColor,
-								mentionCount: children.reduce(
-									(total, guild) => total + guild.mentionCount,
-									0,
-								),
-								unread: children.some(guild => guild.unread),
-							},
-						]
-					},
-				)
-
-		const buildDms = (): readonly t.DirectMessage[] =>
-			PrivateChannelSortStore.getPrivateChannelIds().flatMap((id: string) => {
-					const channel = privateChannel(id)
-					if (!channel) return []
-
-					const recipients: string[] = (channel.recipients ?? []).filter(
-						(recipient: string) => UserStore.getUser(recipient) !== undefined,
-					)
-					const users = recipients.map(
-						recipient => UserStore.getUser(recipient)!,
-					)
-					const avatarUri =
-						channel.type === 1
-							? users[0]?.getAvatarURL?.(undefined, 128, false)
-							: channel.icon
-								? iconUtils.getChannelIconURL({
-										id,
-										icon: channel.icon,
-										size: 128,
-									})
-								: undefined
-
-					const animatedAvatarUri =
-						channel.type === 1 && users[0]?.avatar?.startsWith('a_')
-							? users[0].getAvatarURL(undefined, ICON_SIZE, true)
-							: undefined
-
-					return [
-						{
-							id,
-							avatarUri,
-							animatedAvatarUri,
-							...badge(ReadStateStore, id),
-							name:
-								channel.name ||
-								users
-									.map((user, index) => displayName(recipients[index]!, user))
-									.join(', ') ||
-								'Direct Message',
-						},
-					]
-				})
-
-		let cachedNodes: readonly t.DrawerNode[] | undefined
-		let cachedDms: readonly t.DirectMessage[] | undefined
-		let cachedServerKey: string | undefined
-		let cachedDmKey: string | undefined
 
 		return {
 			markAllRead() {
@@ -726,21 +673,8 @@ export function createServerDrawer(
 				if (channels.length) readActions.bulkAck(channels)
 			},
 
-			serverSnapshot(): readonly t.DrawerNode[] {
-				const key = serverSnapshotKey()
-				if (cachedNodes && key === cachedServerKey) return cachedNodes
-				const next = buildNodes()
-				cachedServerKey = key
-				return (cachedNodes = next)
-			},
-
-			dmSnapshot(): readonly t.DirectMessage[] {
-				const key = dmSnapshotKey()
-				if (cachedDms && key === cachedDmKey) return cachedDms
-				const next = buildDms()
-				cachedDmKey = key
-				return (cachedDms = next)
-			},
+			serverSnapshot: buildNodes,
+			dmSnapshot: buildDms,
 
 			// Native actions return void; false means the item or route is no longer available.
 			selectGuild: (id: string): void | false =>
@@ -896,20 +830,32 @@ export function createServerDrawer(
 			// Discord stores folder IDs as numbers; guild snowflakes remain strings.
 			const id = folder ? Number(guild.id) : guild.id
 
-			// The native builder allocates a fresh list on every call, so subscribe to its labels
-			// rather than the list itself: a primitive key keeps the wrapped items stable, which
-			// keeps both the menu and the abort listener below off the dispatch path.
-			const labels = FluxUtils!.useStateFromStores(
+			// Build once per store notification and preserve unchanged menu wrappers.
+			const menuCache = useRef<{ id: string | number; raw: t.MenuItem[]; wrapped: t.MenuItem[] } | undefined>(undefined)
+			const items = FluxUtils!.useStateFromStores(
 				[GuildStore, UserGuildSettingsStore],
-				() =>
-					getItems(id)
-						.map((item: t.MenuItem) => item.label)
-						.join('\u0000'),
+				() => {
+					const raw = getItems(id)
+					const previous = menuCache.current
+					if (previous && previous.id === id && previous.raw.length === raw.length &&
+						previous.raw.every((item, index) => item.label === raw[index]?.label)) {
+						previous.raw = raw
+						return previous.wrapped
+					}
+					const entry = { id, raw, wrapped: [] as t.MenuItem[] }
+					entry.wrapped = raw.map((item, index) => wrap({
+						...item,
+						action: () => {
+							const current = getItems(id)
+							const action = current[index]
+							if (action?.label === item.label) return action.action()
+							return current.find(candidate => candidate.label === item.label)?.action()
+						},
+					}))
+					menuCache.current = entry
+					return entry.wrapped
+				},
 				[guild.id],
-			)
-			const items: t.MenuItem[] = useMemo(
-				() => getItems(id).map(wrap),
-				[guild.id, labels],
 			)
 			useEffect(() => {
 				focusMenus.add(items)
@@ -2292,7 +2238,9 @@ export function createServerDrawer(
 			)
 
 			const folderMotion = useFolderOverlayMotion(folderOverlayId)
-			const folderPageStyle = useFolderPageMotion(folderId)
+			const folderPageStyle = useFolderPageMotion(folderId, () => {
+				setUiState(previous => previous.folderId || !previous.retainedFolderId ? previous : { ...previous, retainedFolderId: undefined })
+			})
 			const drawerFolder = data.nodes.find(
 				(node): node is t.DrawerFolder =>
 					node.kind === 'folder' && node.id === folderId,
@@ -2420,13 +2368,42 @@ export function createServerDrawer(
 				if (open) setDrawerOpen(true)
 			}
 
+			const cellActions = useRef({
+				press: (_item: t.DrawerItem, _compact?: number) => {},
+				start: (_item: t.DrawerItem, _inFolder: boolean, _layout: t.DrawerLayout, _point: t.DragPoint, _menu?: t.NativeMenuAnchor) => {},
+				cancel: () => {},
+				haptics: false,
+			})
+			cellActions.current = {
+				press: (item, compact) => {
+					if (item.kind !== 'folder') return selectItemRef.current(item)
+					if (compact) changeView('servers', true)
+					changeFolder(item.id)
+				},
+				start: (item, inFolder, layout, point, menu) => {
+					const items = inFolder ? overlayFolder?.children : visible
+					const current = items?.find(candidate => candidate.id === item.id)
+					if (!items || !current) return
+					focusGeneration.current++
+					contextMenu!.hideContextMenu()
+					setFocus(undefined)
+					drag.begin(current, point, items, {
+						columns: inFolder ? 3 : columns,
+						columnStep: inFolder ? ITEM_WIDTH + 8 : columnStep,
+						layout: inFolder ? 'grid' : layout,
+						rowStep: inFolder ? 90 : grid ? 82 + ITEM_GAP : 72,
+					}, menu?.onLongPress)
+				},
+				cancel: () => {
+					focusGeneration.current++
+					contextMenu!.hideContextMenu()
+					setFocus(undefined)
+					drag.handlers.onCancel()
+				},
+				haptics: data.haptics,
+			}
 			const renderCell = ({
-				item,
-				inFolder,
-				compactSize,
-				items,
-				animate,
-				layout,
+				item, inFolder, compactSize, animate, layout, selected, dragging,
 			}: t.DrawerCellProps) => {
 				const render = (menu?: t.NativeMenuAnchor) => {
 					const showFocus = (bounds: Native.LayoutRectangle) => {
@@ -2442,7 +2419,7 @@ export function createServerDrawer(
 								layout: inFolder ? 'grid' : layout,
 							})
 							menu.onLongPress?.()
-							if (data.haptics) lightImpact()
+							if (cellActions.current.haptics) lightImpact()
 						})
 					}
 					const content = (
@@ -2452,16 +2429,10 @@ export function createServerDrawer(
 							animate={animate}
 							compactSize={compactSize}
 							layout={inFolder ? 'grid' : layout}
-							dragging={active?.source.id === item.id}
+							dragging={dragging}
 							feedback={compactSize ? undefined : drag.feedback}
-							selectedId={
-								item.kind ? data.selectedGuildId : data.selectedPrivateChannelId
-							}
-							onPress={() => {
-								if (item.kind !== 'folder') return selectItemRef.current(item)
-								if (compactSize) changeView('servers', true)
-								changeFolder(item.id)
-							}}
+							selectedId={selected ? item.id : undefined}
+								onPress={() => cellActions.current.press(item, compactSize)}
 						/>
 					)
 
@@ -2480,29 +2451,8 @@ export function createServerDrawer(
 							feedback={drag.feedback}
 							{...drag.handlers}
 							onHold={showFocus}
-							onCancel={() => {
-								focusGeneration.current++
-								contextMenu!.hideContextMenu()
-								setFocus(undefined)
-								drag.handlers.onCancel()
-							}}
-							onStart={point => {
-								focusGeneration.current++
-								contextMenu!.hideContextMenu()
-								setFocus(undefined)
-								drag.begin(
-									item,
-									point,
-									inFolder ? overlayFolder!.children : items,
-									{
-										columns: inFolder ? 3 : columns,
-										columnStep: inFolder ? ITEM_WIDTH + 8 : columnStep,
-										layout: inFolder ? 'grid' : layout,
-										rowStep: inFolder ? 90 : grid ? 82 + ITEM_GAP : 72,
-									},
-									menu?.onLongPress,
-								)
-							}}
+							onCancel={() => cellActions.current.cancel()}
+								onStart={point => cellActions.current.start(item, inFolder, layout, point, menu)}
 						>
 							{content}
 						</DragTarget>
@@ -2527,7 +2477,6 @@ export function createServerDrawer(
 				inFolder = false,
 				compactSize?: number,
 				page: t.DrawerView = view,
-				items = compactSize ? data.nodes : visible,
 				visiblePage = true,
 			) => {
 				const animated =
@@ -2542,13 +2491,11 @@ export function createServerDrawer(
 						item={item}
 						inFolder={inFolder}
 						compactSize={compactSize}
-						items={items}
 						animate={
 							animated &&
 							visiblePage &&
 							!compactSize &&
-							((expanded && page === view) || !!folderOverlayId) &&
-							foreground
+							data.animateAvatars && (inFolder || page === view)
 						}
 						layout={data.layouts[page]}
 						width={viewportWidth}
@@ -2693,7 +2640,6 @@ export function createServerDrawer(
 														false,
 														undefined,
 														page,
-														items,
 														!hidden,
 													)}
 												</View>
@@ -3115,13 +3061,13 @@ export function createServerDrawer(
 				</AvatarPlayback>
 			)
 		}
-		return function ServerDrawerSurface(props: t.ServerDrawerSurfaceProps) {
+		return memo(function ServerDrawerSurface(props: t.ServerDrawerSurfaceProps) {
 			const [ready, setReady] = useState(!!jsonStorage.cache)
 			useEffect(() => {
 				if (!ready) void jsonStorage.get().then(() => setReady(true))
 			}, [ready])
 			return ready ? <DrawerSurface {...props} /> : null
-		}
+		})
 	}
 
 	function hitsDropTarget(

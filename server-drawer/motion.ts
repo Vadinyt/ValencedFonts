@@ -99,33 +99,61 @@ export function createDrawerMotion(Gesture: t.NativeGestureModule['Gesture']) {
 		}
 	}
 
-	const spring = (value: Animated.Value, next: number, velocity = 0) => {
+	const spring = (value: Animated.Value, next: number, velocity = 0, complete?: Animated.EndCallback) => {
 		value.stopAnimation()
-		if (accessibility.useReducedMotion) value.setValue(next)
-		else
+		if (accessibility.useReducedMotion) {
+			value.setValue(next)
+			complete?.({ finished: true })
+		} else
 			Animated.spring(value, {
 				...subtleSpring,
 				velocity,
 				toValue: next,
 				useNativeDriver: true,
-			}).start()
+				isInteraction: false,
+			}).start(complete)
 	}
 
 	function useTranslation(next: number, animate = spring) {
 		const [translate] = useState(() => new Animated.Value(next))
 		const position = useRef(next)
 		const target = useRef(next)
+		const tracking = useRef(false)
+		const frame = useRef<number | undefined>(undefined)
+		const animator = useRef(animate)
+		animator.current = animate
+		const cancelFrame = () => {
+			if (frame.current !== undefined) cancelAnimationFrame(frame.current)
+			frame.current = undefined
+		}
+		const begin = () => {
+			cancelFrame()
+			tracking.current = true
+			translate.stopAnimation()
+		}
+		const write = (value: number) => {
+			position.current = value
+			if (frame.current !== undefined) return
+			frame.current = requestAnimationFrame(() => {
+				frame.current = undefined
+				if (tracking.current) translate.setValue(position.current)
+			})
+		}
 		const settle = (value: number, velocity = 0) => {
+			cancelFrame()
+			if (tracking.current) translate.setValue(position.current)
+			tracking.current = false
 			target.current = value
-			animate(translate, value, velocity)
+			animator.current(translate, value, velocity)
 		}
 
 		useEffect(() => {
 			const listener = translate.addListener(({ value }) => {
-				position.current = value
+				if (!tracking.current) position.current = value
 			})
-
 			return () => {
+				cancelFrame()
+				tracking.current = false
 				translate.stopAnimation()
 				translate.removeListener(listener)
 			}
@@ -135,7 +163,7 @@ export function createDrawerMotion(Gesture: t.NativeGestureModule['Gesture']) {
 			if (target.current !== next) settle(next)
 		}, [next])
 
-		return { translate, position, target, settle }
+		return { translate, position, target, settle, begin, write }
 	}
 
 	function useDrawerMotion(
@@ -154,7 +182,7 @@ export function createDrawerMotion(Gesture: t.NativeGestureModule['Gesture']) {
 		const distance = maximum - minimum
 		const [openingFrom, setOpeningFrom] = useState<number>()
 		const previousExpanded = useRef(expanded)
-		const { translate, position, target, settle } = useTranslation(
+		const { translate, position, target, settle, begin, write } = useTranslation(
 			expanded ? 0 : distance,
 			(value, next, velocity = 0) => {
 				if (!soft) return spring(value, next, velocity)
@@ -234,7 +262,7 @@ export function createDrawerMotion(Gesture: t.NativeGestureModule['Gesture']) {
 						start = event.translationY
 						if (!expanded || !soft) setOpeningFrom(undefined)
 						pulling = canPull ? undefined : false
-						translate.stopAnimation()
+						begin()
 						origin.current =
 							Math.max(0, Math.min(distance, position.current)) -
 							event.translationY
@@ -260,7 +288,7 @@ export function createDrawerMotion(Gesture: t.NativeGestureModule['Gesture']) {
 							position.current =
 								distance - distance * 0.125 * (1 - (1 - progress) ** 2)
 						}
-						translate.setValue(position.current)
+						write(position.current)
 					})
 					.onEnd((event, success) => {
 						if (!success) return
@@ -351,7 +379,7 @@ export function createDrawerMotion(Gesture: t.NativeGestureModule['Gesture']) {
 		enabled: boolean,
 		onView: (view: t.DrawerView) => void,
 	) {
-		const { translate, position, settle } = useTranslation(
+		const { translate, position, settle, begin, write } = useTranslation(
 			view === 'servers' ? 0 : -width,
 		)
 		const callback = useRef(onView)
@@ -374,7 +402,7 @@ export function createDrawerMotion(Gesture: t.NativeGestureModule['Gesture']) {
 				.failOffsetY([-slop, slop])
 				.onStart(event => {
 					active = true
-					translate.stopAnimation()
+					begin()
 					origin =
 						Math.max(-width, Math.min(0, position.current)) - event.translationX
 				})
@@ -383,7 +411,7 @@ export function createDrawerMotion(Gesture: t.NativeGestureModule['Gesture']) {
 						-width,
 						Math.min(0, origin + event.translationX),
 					)
-					translate.setValue(position.current)
+					write(position.current)
 				})
 				.onEnd((event, success) => {
 					if (!success) return
@@ -403,14 +431,18 @@ export function createDrawerMotion(Gesture: t.NativeGestureModule['Gesture']) {
 		return { gesture, style: { transform: [{ translateX: translate }] } }
 	}
 
-	function useFolderPageMotion(folderId: string | undefined) {
+	function useFolderPageMotion(folderId: string | undefined, onClosed: () => void) {
 		const [progress] = useState(() => new Animated.Value(folderId ? 1 : 0))
 		const previous = useRef(folderId)
+		const closed = useRef(onClosed)
+		closed.current = onClosed
 
 		useEffect(() => {
 			if (previous.current === folderId) return
 			previous.current = folderId
-			spring(progress, folderId ? 1 : 0)
+			spring(progress, folderId ? 1 : 0, 0, ({ finished }) => {
+				if (finished && !folderId) closed.current()
+			})
 
 			return () => progress.stopAnimation()
 		}, [folderId])

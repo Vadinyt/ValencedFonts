@@ -59,12 +59,20 @@ export function createDragMotion(
 		const anchor = useRef<View>(null)
 		const held = useRef<t.DragPoint | undefined>(undefined)
 		const moving = useRef(false)
+		const pending = useRef<t.DragPoint | undefined>(undefined)
+		const frame = useRef<number | undefined>(undefined)
+		const clearFrame = () => {
+			if (frame.current !== undefined) cancelAnimationFrame(frame.current)
+			frame.current = undefined
+			pending.current = undefined
+		}
 		const focusTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
 			undefined,
 		)
 		useEffect(
 			() => () => {
 				clearTimeout(focusTimer.current)
+				clearFrame()
 				held.current = undefined
 			},
 			[],
@@ -131,7 +139,7 @@ export function createDragMotion(
 		const onGestureEvent = useMemo(
 			() =>
 				Animated.event([{ nativeEvent: { absoluteX: x, absoluteY: y } }], {
-					useNativeDriver: false,
+					useNativeDriver: true,
 					listener: ({
 						nativeEvent: event,
 					}: import('react-native').NativeSyntheticEvent<t.NativePanStateEvent>) => {
@@ -154,7 +162,13 @@ export function createDragMotion(
 								useNativeDriver: true,
 							}).start()
 						}
-						callbacks.current.onMove({ x: event.absoluteX, y: event.absoluteY })
+						pending.current = { x: event.absoluteX, y: event.absoluteY }
+						if (frame.current === undefined) frame.current = requestAnimationFrame(() => {
+							frame.current = undefined
+							const point = pending.current
+							pending.current = undefined
+							if (point && moving.current) callbacks.current.onMove(point)
+						})
 					},
 				}),
 			[x, y, scale],
@@ -177,6 +191,7 @@ export function createDragMotion(
 					})
 				}, 250)
 			} else if (event.oldState === State.ACTIVE) {
+				clearFrame()
 				clearTimeout(focusTimer.current)
 				if (moving.current && event.state === State.END)
 					callbacks.current.onDrop({

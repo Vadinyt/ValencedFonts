@@ -35,16 +35,17 @@ export function orderedDms(
 	items: readonly t.DirectMessage[],
 	order: unknown,
 ): readonly t.DirectMessage[] {
+	if (!Array.isArray(order) || !order.length) return items
 	const remaining = new Map(items.map(item => [item.id, item]))
 
-	return [...(Array.isArray(order) ? order : []), ...remaining.keys()].flatMap(
+	return reuseArray(items, [...order, ...remaining.keys()].flatMap(
 		id => {
 			const item = remaining.get(id)
 			remaining.delete(id)
 
 			return item ? [item] : []
 		},
-	)
+	))
 }
 
 export function filteredItems(
@@ -63,7 +64,7 @@ export function filteredItems(
 		if (item.kind !== 'folder') return matches(item) ? [item] : []
 		const children = item.children.filter(matches)
 
-		return search ? children : children.length ? [{ ...item, children }] : []
+		return search ? children : children.length ? [children.length === item.children.length ? item : { ...item, children }] : []
 	})
 }
 // Discord's move action inserts before its target; the drawer previews the target's slot.
@@ -77,4 +78,9 @@ export function moveToSlot(
 	const forward = from >= 0 && from < siblings.indexOf(target)
 	moveBefore(source, target)
 	if (forward) moveBefore(target, source)
+}
+
+// Preserve identity for unchanged ordered lists.
+export function reuseArray<T>(previous: readonly T[] | undefined, next: readonly T[]): readonly T[] {
+	return previous && previous.length === next.length && previous.every((item, index) => item === next[index]) ? previous : next
 }
